@@ -1,0 +1,7 @@
+requests
+wget
+xmltodict
+PyQt5
+playwright
+promise
+pywidevine
