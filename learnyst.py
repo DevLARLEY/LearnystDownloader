@@ -183,8 +183,8 @@ class LearnystInterface(QObject):
                               );
                           }
                         ''' % (args[1], args[2]),
-                        base64.b64encode(args[0]).decode()
-                ))
+                                   base64.b64encode(args[0]).decode()
+                                   ))
             )
         elif command == CommandEnum.SET_DRM_DATA:
             return self.process_data(
@@ -271,13 +271,15 @@ class Learnyst:
     @staticmethod
     def get_course_id(
             school_id: int,
-            seo_title: str
+            seo_title: str,
+            token: str
     ) -> dict | None:
         response = requests.get(
-            url='https://api.learnyst.com/learner/v17/courses/course_ids',
-            params={
-                "school_id": school_id,
-                "seo_title": seo_title,
+            url=f'https://api.learnyst.com/learner/v17/courses/course_ids'
+                f'?school_id={school_id}'
+                f'&seo_title[]={seo_title}',
+            headers={
+                'Authorization': f'Bearer {token}'
             }
         )
         if "Course not found" in response.text:
@@ -302,7 +304,10 @@ class Learnyst:
 
         response = requests.get(
             url=f'https://api.learnyst.com/learner/v17/courses/{course_id}',
-            params=params
+            params=params,
+            headers={
+                'Authorization': f'Bearer {self.token}'
+            }
         )
         handle(response.status_code == 200, f"Unable to get course data ({response.status_code}): {response.text}")
         logging.debug(response.text)
@@ -548,7 +553,8 @@ class Learnyst:
         else:
             logging.info(f"Unencrypted file URL => {source_file}")
 
-        if src_type in (SrcType.ENCRYPTED_VIDEO, SrcType.ENCRYPTED_AUDIO, SrcType.UNENCRYPTED_VIDEO, SrcType.UNENCRYPTED_AUDIO):
+        if src_type in (
+                SrcType.ENCRYPTED_VIDEO, SrcType.ENCRYPTED_AUDIO, SrcType.UNENCRYPTED_VIDEO, SrcType.UNENCRYPTED_AUDIO):
             src = basename(content_path)
             self.trash.append(src)
 
@@ -740,7 +746,7 @@ class Learnyst:
     def download(self):
         logging.info("Requesting course id...")
         # TODO: select from output
-        course = self.get_course_id(self.school_id, self.title)
+        course = self.get_course_id(self.school_id, self.title, self.token)
         logging.debug(course)
         course_id = course[0].get('id')
 
