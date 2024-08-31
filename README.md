@@ -1,9 +1,6 @@
 <p align="center"><a><img src="learnyst.png"></a></p>
 <h1 align="center" style="font-size: value;">Learnyst Downloader</h1>
 
-## Limitations
-+ Courses with a length of more than ~3.5h hours cannot be decrypted. This is a limitation of the way the library is being emulated.
-
 ## Requirements
 + [Python 3.12](https://www.python.org/)
 + [L3 CDM](https://forum.videohelp.com/threads/408031)
