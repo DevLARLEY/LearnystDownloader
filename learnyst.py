@@ -22,6 +22,7 @@ from promise import promise
 from pywidevine import PSSH, Device, Cdm
 
 from config_manager import ConfigManager
+from network_manager import NetworkFileManager
 from player_manager import PlayerManager
 from util import handle, is_token_valid, ensure_list, clean, try_parse, remove_query, executable_exists
 
@@ -164,28 +165,28 @@ class LearnystInterface(QObject):
             *args
     ):
         if command == CommandEnum.ECRYPT_DECRYPT_BYTES:
-            return base64.b64decode(
-                self.process_data(('''
-                          (b64) => {
-                              console.log("Reading input data...");
-                              const binaryString = atob(b64);
-                              const len = binaryString.length;
-                              const bytes = new Uint8Array(len);
-                              for (let i = 0; i < len; i++) {
-                                  bytes[i] = binaryString.charCodeAt(i);
-                              }
+            return self.process_data(('''
+                async (filename) => {
+                    console.log("Receiving encrypted file...");
+                    const response = await fetch('http://localhost:4444/download/' + filename);
+                    const data = await response.arrayBuffer();
+                    const bytes = new Uint8Array(data);
 
-                              console.log("Decryption started...");
-                              const result = LstPlayer.ECRYPT_decrypt_bytes(bytes, "%s", "%s");
-                              console.log("Returning...");
-                              return btoa(
-                                  new Uint8Array(result).reduce((data, byte) => data + String.fromCharCode(byte), '')
-                              );
-                          }
-                        ''' % (args[1], args[2]),
-                                   base64.b64encode(args[0]).decode()
-                                   ))
-            )
+                    console.log("Decrypting...");
+                    const result = LstPlayer.ECRYPT_decrypt_bytes(bytes, "%s", "%s");
+
+                    console.log("Returning decrypted file...");
+                    
+                    const blob = new Blob([result], { type: 'application/octet-stream' });
+                    await fetch('http://localhost:4444/upload', {
+                        method: 'POST',
+                        body: blob,
+                        headers: {"Filename": filename}
+                    });
+                    return filename;
+                }
+                ''' % (args[1], args[2]), args[0]
+            ))
         elif command == CommandEnum.SET_DRM_DATA:
             return self.process_data(
                 "LstPlayer.{method}(JSON.parse('{arg0}'), '{arg1}')".format(
@@ -227,6 +228,7 @@ class Learnyst:
     # ############################## #
 
     CDM_DIR = 'cdm'
+    FILE_DIR = 'files'
 
     def __init__(
             self,
@@ -247,6 +249,9 @@ class Learnyst:
             f"No widevine devices found in the {self.CDM_DIR!r} directory"
         )
         self.widevine_device = devices[0]
+
+        self.network_manager = NetworkFileManager()
+        self.network_manager.start()
 
         self.interface = LearnystInterface()
         self.title, self.sub_title, self.section_id, self.lesson_id = self._process_url(self.url)
@@ -532,34 +537,38 @@ class Learnyst:
             self._decryption_setup(drm_type, course_id, content_id, path_prefix)
 
         content_path = self.build_content_url(src_type, path_prefix_extn, src)
-        source_file = signed_url.replace('*', content_path)
+        source_file_url = signed_url.replace('*', content_path)
 
         if src_type in (
                 SrcType.UNENCRYPTED_HTML, SrcType.UNENCRYPTED_IMAGE, SrcType.UNENCRYPTED_PDF,
                 SrcType.UNENCRYPTED_VIDEO, SrcType.UNENCRYPTED_AUDIO, SrcType.ENCRYPTED_HTML
         ):
-            source_file = remove_query(source_file)
+            source_file_url = remove_query(source_file_url)
 
-        file_request = requests.get(source_file)
+        file_request = requests.get(source_file_url)
         handle(
             file_request.status_code == 200,
             f"Unable to request resource file ({file_request.status_code}): {file_request.text}"
         )
 
         content = file_request.content
+
+        # manifest
+        if src_type in (
+                SrcType.ENCRYPTED_VIDEO, SrcType.ENCRYPTED_AUDIO, SrcType.UNENCRYPTED_VIDEO, SrcType.UNENCRYPTED_AUDIO
+        ):
+            src = basename(content_path)
+            self.trash.append(join(self.FILE_DIR, src))
+
+        open(join(self.FILE_DIR, src), "wb").write(content)
+
         if drm_type != DRMType.NO_DRM:
             logging.info("Decrypting file...")
-            content = self.interface.execute(CommandEnum.ECRYPT_DECRYPT_BYTES, content, 0, source_file)
+            src = join(self.FILE_DIR, self.interface.execute(CommandEnum.ECRYPT_DECRYPT_BYTES, src, 0, source_file_url))
         else:
-            logging.info(f"Unencrypted file URL => {source_file}")
+            logging.info(f"Unencrypted file URL => {source_file_url}")
 
-        if src_type in (
-                SrcType.ENCRYPTED_VIDEO, SrcType.ENCRYPTED_AUDIO, SrcType.UNENCRYPTED_VIDEO, SrcType.UNENCRYPTED_AUDIO):
-            src = basename(content_path)
-            self.trash.append(src)
-
-        open(file_name := src, "wb").write(content)
-        return file_name, source_file
+        return src, source_file_url
 
     def _download_manifest(
             self,
@@ -567,7 +576,11 @@ class Learnyst:
             url: str,
             decrypt: bool
     ) -> tuple[list[str], str]:
-        manifest_json = xmltodict.parse(open(manifest, "r").read())
+        manifest_json = xmltodict.parse(
+            open(manifest, "r").read()
+        )
+        self.trash.append(manifest)
+
         files = []
         pssh = None
         for ad_set in ensure_list(manifest_json["MPD"]["Period"]["AdaptationSet"]):
@@ -585,21 +598,22 @@ class Learnyst:
                 files.append((
                     wget.download(
                         url=(modified := url.replace(manifest_name, name)),
-                        out=name
+                        out=join(self.FILE_DIR, name)
                     ),
                     modified
                 ))
                 print()
         if decrypt:
-            for file, furl in files:
+            for idx, (file, furl) in enumerate(files):
                 logging.info(f'Decrypting {file} (this can take a while)...')
-                decrypted_bytes = self.interface.execute(
+                self.trash.append(file)
+                decrypted_file = self.interface.execute(
                     CommandEnum.ECRYPT_DECRYPT_BYTES,
-                    open(file, "rb").read(),
+                    basename(file),
                     0,
                     furl
                 )
-                open(file, "wb").write(decrypted_bytes)
+                files[idx] = (join(self.FILE_DIR, decrypted_file), furl)
         return list(map(
             lambda f: f[0],
             files
@@ -698,7 +712,7 @@ class Learnyst:
                 command = [
                     "shaka-packager",
                     "--minloglevel=2",
-                    f"input={file},stream={'audio' if file.startswith('a') else 'video'},output={new_name}",
+                    f"input={file},stream={'audio' if basename(file).startswith('a') else 'video'},output={new_name}",
                     "--enable_raw_key_decryption",
                     *sum([['--keys', i] for i in map(lambda key: 'key_id=' + key[:33] + 'key=' + key[33:], keys)], [])
                 ]
@@ -711,16 +725,18 @@ class Learnyst:
                     *sum([['--key', i] for i in keys], [])
                 ]
 
-            handle(command, "Unable to locate shaka-packager and mp4decrypt")
+            handle(command, "Unable to locate neither shaka-packager nor mp4decrypt")
             subprocess.run(command, shell=False)
             yield new_name
 
-    @staticmethod
     def _merge(
+            self,
             files: list,
             name: str
     ):
         command = []
+        new = join(self.FILE_DIR, splitext(name)[0] + ".mkv")
+
         if executable_exists("ffmpeg"):
             logging.info("Muxing using ffmpeg...")
             command = [
@@ -728,7 +744,7 @@ class Learnyst:
                 "-loglevel", "error",
                 *sum([['-i', i] for i in files], []),
                 "-c", "copy",
-                new := name
+                new
             ]
         elif executable_exists("mkvmerge"):
             logging.info("Muxing using mkvmerge...")
@@ -736,9 +752,10 @@ class Learnyst:
                 "mkvmerge",
                 "-q",
                 *files,
-                "-o", new := (splitext(name)[0] + ".mkv")
+                "-o", new
             ]
-        handle(command, "Unable to locate ffmpeg or mkvmerge")
+
+        handle(command, "Unable to locate neither ffmpeg nor mkvmerge")
         subprocess.run(command, shell=False)
         # noinspection PyUnboundLocalVariable
         return new
