@@ -5,3 +5,5 @@ PyQt5
 playwright
 promise
 pywidevine
+flask
+flask-cors
