@@ -224,7 +224,7 @@ class LearnystInterface(QObject):
 class Learnyst:
     # ######## DO NOT TOUCH ######## #
     SHOULD_ENC_LIC = False  # not a requirement
-    IS_PAID = True  # doesn't seem to matter
+    IS_PAID = True  # required in rare scenarios
     # ############################## #
 
     CDM_DIR = 'cdm'
@@ -480,6 +480,13 @@ class Learnyst:
                 "version": api_version
             }).encode()).decode()
         )
+
+        if lstdrm_request.status_code == 412 and "This is not accessible for trail enrollment" in lstdrm_request.text:
+            logging.info("Not accessible for trail enrollment, resending request")
+            self.IS_PAID = False
+            self._decryption_setup(drm_type, course_id, content_id, path_prefix)
+            return
+
         handle(
             lstdrm_request.status_code == 200,
             f"Unable to request lst license ({lstdrm_request.status_code}): {lstdrm_request.text}"
@@ -566,6 +573,7 @@ class Learnyst:
             logging.info("Decrypting file...")
             src = join(self.FILE_DIR, self.interface.execute(CommandEnum.ECRYPT_DECRYPT_BYTES, src, 0, source_file_url))
         else:
+            src = join(self.FILE_DIR, src)
             logging.info(f"Unencrypted file URL => {source_file_url}")
 
         return src, source_file_url
