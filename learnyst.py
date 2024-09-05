@@ -25,7 +25,7 @@ from config_manager import ConfigManager
 from network_manager import NetworkFileManager
 from player_manager import PlayerManager
 from util import handle, is_token_valid, ensure_list, clean, try_parse, remove_query, executable_exists
-
+from typing import List, Tuple, Optional
 
 class SrcType(Enum):
     UNENCRYPTED_IMAGE = 1
@@ -583,7 +583,7 @@ class Learnyst:
             manifest: str,
             url: str,
             decrypt: bool
-    ) -> tuple[list[str], str]:
+    ) -> Tuple[List[str], Optional[str]]:
         manifest_json = xmltodict.parse(
             open(manifest, "r").read()
         )
@@ -595,17 +595,20 @@ class Learnyst:
             if ad_set["@contentType"] in ("video", "audio"):
                 if decrypt:
                     pssh = next(
-                        protection.get('cenc:pssh') for protection in ensure_list(ad_set["ContentProtection"])
-                        if protection.get('@schemeIdUri').lower() == "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
+                        (protection.get('cenc:pssh') for protection in ensure_list(ad_set["ContentProtection"])
+                        if protection.get('@schemeIdUri').lower() == "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"),
+                        None
                     )
                 representation = sorted(
                     ensure_list(ad_set.get('Representation')), key=lambda i: int(i.get('@bandwidth')), reverse=True
                 )
-                logging.info(f'Downloading {(name := representation[0].get('BaseURL'))}...')
+                name = representation[0].get('BaseURL')
+                logging.info(f'Downloading {name}...')
                 manifest_name = "stream.lds" if decrypt else "stream.mpd"
+                modified = url.replace(manifest_name, name)
                 files.append((
                     wget.download(
-                        url=(modified := url.replace(manifest_name, name)),
+                        url=modified,
                         out=join(self.FILE_DIR, name)
                     ),
                     modified
