@@ -8,8 +8,8 @@
 ## Installation
 + Install the requirements: `python -m pip install -r requirements.txt`
 + Download and Install Playwright Chromium `playwright install chromium`
-+ Place either the `mp4decrypt` or `shaka-packager` binary in root directory of the program. Make sure they have the aforementioned names.
-+ Place either the `ffmpeg` or `mkvmerge` binary in root directory of the program. Make sure they have the aforementioned names.
++ Creates a `binary` Folder. If the folder does not already exist, it will be created in the current working directory.
++ Moves specified binaries (`mp4decrypt`, `shaka-packager`, `ffmpeg`, `mkvmerge`) from the root directory into the `binary` folder.
 + Place your CDM in the `cdm` folder
 
 ## Usage
