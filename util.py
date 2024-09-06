@@ -2,11 +2,10 @@ import glob
 import json
 import logging
 from os import remove
-from os.path import exists
+from os.path import exists, join
 from urllib.parse import urlparse
 
 import requests
-from timeit import default_timer as timer
 
 
 def handle(result, error: str):
@@ -32,7 +31,11 @@ def is_token_valid(token: str) -> bool:
 
 
 def executable_exists(exe: str) -> bool:
-    return exists(exe) or exists(f"{exe}.exe")
+    bin_dir = "bin"
+    return (
+            exists(join(bin_dir, exe)) or
+            exists(join(bin_dir, f"{exe}.exe"))
+    )
 
 
 def try_parse(to_parse: str):
