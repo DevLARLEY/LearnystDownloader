@@ -229,6 +229,7 @@ class Learnyst:
 
     CDM_DIR = 'cdm'
     FILE_DIR = 'files'
+    BIN_DIR = 'bin'
 
     def __init__(
             self,
@@ -584,9 +585,8 @@ class Learnyst:
             url: str,
             decrypt: bool
     ) -> tuple[list[str], str]:
-        manifest_json = xmltodict.parse(
-            open(manifest, "r").read()
-        )
+        with open(manifest, "r") as io_reader:
+            manifest_json = xmltodict.parse(io_reader.read())
         self.trash.append(manifest)
 
         files = []
@@ -601,7 +601,9 @@ class Learnyst:
                 representation = sorted(
                     ensure_list(ad_set.get('Representation')), key=lambda i: int(i.get('@bandwidth')), reverse=True
                 )
-                logging.info(f'Downloading {(name := representation[0].get('BaseURL'))}...')
+
+                name = representation[0].get('BaseURL')
+                logging.info(f'Downloading {name}...')
                 manifest_name = "stream.lds" if decrypt else "stream.mpd"
                 files.append((
                     wget.download(
@@ -704,8 +706,8 @@ class Learnyst:
         cdm.close(session_id)
         return keys
 
-    @staticmethod
     def _decrypt(
+            self,
             files: list,
             keys: list
     ):
@@ -718,7 +720,7 @@ class Learnyst:
             if executable_exists("shaka-packager"):
                 logging.info("Decrypting using Shaka Packager...")
                 command = [
-                    "shaka-packager",
+                    join(self.BIN_DIR, "shaka-packager"),
                     "--minloglevel=2",
                     f"input={file},stream={'audio' if basename(file).startswith('a') else 'video'},output={new_name}",
                     "--enable_raw_key_decryption",
@@ -727,7 +729,7 @@ class Learnyst:
             elif executable_exists("mp4decrypt"):
                 logging.info("Decrypting using mp4decrypt...")
                 command = [
-                    "mp4decrypt",
+                    join(self.BIN_DIR, "mp4decrypt"),
                     file,
                     new_name,
                     *sum([['--key', i] for i in keys], [])
@@ -748,7 +750,7 @@ class Learnyst:
         if executable_exists("ffmpeg"):
             logging.info("Muxing using ffmpeg...")
             command = [
-                "ffmpeg", "-y",
+                join(self.BIN_DIR, "ffmpeg"), "-y",
                 "-loglevel", "error",
                 *sum([['-i', i] for i in files], []),
                 "-c", "copy",
@@ -757,7 +759,7 @@ class Learnyst:
         elif executable_exists("mkvmerge"):
             logging.info("Muxing using mkvmerge...")
             command = [
-                "mkvmerge",
+                join(self.BIN_DIR, "mkvmerge"),
                 "-q",
                 *files,
                 "-o", new
