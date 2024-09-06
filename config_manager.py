@@ -1,16 +1,19 @@
 import json
-from os.path import exists
+from os import makedirs
+from os.path import exists, join
 
 
 class ConfigManager:
     def __init__(self):
-        self.config_file_name = "config.json"
+        self.config_dir_name = "config"
+        self.config_file_name = join(self.config_dir_name, "config.json")
         self.defaults = {
             "lrToken": None
         }
         self.config = self.defaults
 
     def initialize(self):
+        makedirs(self.config_dir_name, exist_ok=True)
         if not exists(self.config_file_name):
             js = json.dumps(self.config)
             with open(self.config_file_name, "w") as io_writer:
