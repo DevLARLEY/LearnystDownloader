@@ -1,6 +1,10 @@
 <p align="center"><a><img src="learnyst.png"></a></p>
 <h1 align="center" style="font-size: value;">Learnyst Downloader</h1>
 
+## Info
+Please open an issue if you're getting a 419 error when requesting an lst license. \
+The error is caused by learnyst changing the api version.
+
 ## Requirements
 + [Python 3.12](https://www.python.org/)
 + [L3 CDM](https://forum.videohelp.com/threads/408031)
